@@ -2,8 +2,9 @@
 #define USE_ARDUINO_INTERRUPTS true    // Set-up low-level interrupts for most acurate BPM math.
 #include <PulseSensorPlayground.h>     // Includes the PulseSensorPlayground Library.   
 #include "pitches.h"
-#include <Time.h>
-#include <TimeLib.h>
+#include <Time.h> //Time without RTC
+#include <TimeLib.h> 
+
 
 // notes in the melody:
 int melody[] = {
@@ -24,23 +25,20 @@ int noteDurations[] = {
 };
 
 //  Variables
-const int PulseWire = 0;       // PulseSensor PURPLE WIRE connected to ANALOG PIN 0
+const int PulseWire = A5;       // PulseSensor PURPLE WIRE connected to ANALOG PIN 0
 const int LED = 13;          // The on-board Arduino LED, close to PIN 13.
 int Threshold = 200;           // Determine which Signal to "count as a beat" and which to ignore.
-                               // Use the "Gettting Started Project" to fine-tune Threshold Value beyond default setting.
-                               // Otherwise leave the default "550" value. 
+unsigned long lastTime = 0; //For timkeeping for the clock display
 int stoppingBeat = 100;
 PulseSensorPlayground pulseSensor;  // Creates an instance of the PulseSensorPlayground object called "pulseSensor"
-const int buzzer = 7;
-volatile bool clockFlag = false; // Flag to indicate whether the clock should update
-unsigned long previousMillis = 0; // Variable to store the last time the clock was updated
-const unsigned long interval = 1000; // Update the clock every 1000 milliseconds
+const int buzzer = 10;
+
 
 void setup() {
-  int hour = 18;
-  int minute = 22;   
+  int hour = 18; //Calibrate clock, current hour
+  int minute = 22;  //Calibrate cock, current minute
   Serial.begin(9600);          // For Serial Monitor
-  setTime(hour,minute,50,0,0,0);  
+  setTime(hour,minute,50,0,0,0);  //Date is uneccessary
 
   // Configure the PulseSensor object, by assigning our variables to it. 
   pulseSensor.analogInput(PulseWire);   
@@ -52,16 +50,14 @@ pulseSensor.begin();
 
 
 
-
-
-
 void loop() {
-int hour_vakning = 18;
-int minute_vakning = 23;
+  int hour_vakning = 18; //hour you want to wake up
+  int minute_vakning = 23; //minute you want to wake up
+  digitalClockDisplay(); //Display the time
   if (hour() == hour_vakning && minute()>minute_vakning-1 && minute()<minute_vakning+4){
     int myBPM = pulseSensor.getBeatsPerMinute();
     if (myBPM<stoppingBeat){
-       sound();
+       playMelody();
        Serial.print("BPM: ");                        // Print phrase "BPM: " 
        Serial.println(pulseSensor.getBeatsPerMinute());
       }//Plays melody while bpm less than 100
@@ -69,16 +65,14 @@ int minute_vakning = 23;
       Serial.print("BPM: ");                        // Print phrase "BPM: " 
       Serial.println(pulseSensor.getBeatsPerMinute());                        // Print the value inside of myBPM. 
       Serial.println("Stoppa hljóð");  
-      delay(60000); //Delay for one minute
-      }
-    
-} else {
-    digitalClockDisplay();
+      digitalClockDisplay();
+      delay(4*60*1000);
+     }
   }
 }
 
-void sound(){
-  for (int thisNote = 0; thisNote < length; thisNote++) {
+void playMelody() {
+    for (int thisNote = 0; thisNote < length; thisNote++) {
         // to calculate the note duration, take one second divided by the note type.
         //e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
           int noteDuration = 1000 / noteDurations[thisNote];
@@ -92,13 +86,18 @@ void sound(){
     }
 }
 
-void digitalClockDisplay()
-{
-  Serial.print(hour());
-  printDigits(minute());
-  printDigits(second());
-  Serial.println("");
-  delay(1000);
+//Display the time as unblocking code. 
+void digitalClockDisplay() {
+  unsigned long currentTime = millis();
+
+  if (currentTime - lastTime >= 1000) {
+    lastTime = currentTime;
+
+    Serial.print(hour());
+    printDigits(minute());
+    printDigits(second());
+    Serial.println("");
+  }
 }
 void printDigits(int digits)
 {
