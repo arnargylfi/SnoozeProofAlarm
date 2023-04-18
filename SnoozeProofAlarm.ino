@@ -28,9 +28,9 @@ int noteDurations[] = {
 //  Variables
 const int PulseWire = A5;       // PulseSensor PURPLE WIRE connected to ANALOG PIN 0
 const int LED = 13;          // The on-board Arduino LED, close to PIN 13.
-int Threshold = 200;           // Determine which Signal to "count as a beat" and which to ignore.
+int Threshold = 100;           // Determine which Signal to "count as a beat" and which to ignore.
 unsigned long lastTime = 0; //For timkeeping for the clock display
-int stoppingBeat = 100;
+int stoppingBeat = 200;
 PulseSensorPlayground pulseSensor;  // Creates an instance of the PulseSensorPlayground object called "pulseSensor"
 const int buzzerPin = 10;
 ezBuzzer buzzer(buzzerPin);

@@ -39,9 +39,8 @@ int noteDurations[] = {
 const int PulseWire = A5;
 
 #define LCD_RESET A4 // Can alternately just connect to Arduino's reset pin
-const int LED = 13;          // The on-board Arduino LED, close to PIN 13.
-int Threshold = 200;           // Determine which Signal to "count as a beat" and which to ignore.
-int stoppingBeat = 300;
+int Threshold = 100;           // Determine which Signal to "count as a beat" and which to ignore.
+int stoppingBeat = 400;
 PulseSensorPlayground pulseSensor;  // Creates an instance of the PulseSensorPlayground object called "pulseSensor"
 const int buzzerPin = 10;
 ezBuzzer buzzer(buzzerPin);
@@ -130,7 +129,6 @@ uint16_t buttoncolors[10] = {ILI9341_BLUE, ILI9341_BLUE, ILI9341_BLUE,
 bool Hjarta = false;
 void setup(void) {
   pulseSensor.analogInput(PulseWire);   
-  pulseSensor.blinkOnPulse(LED);       //auto-magically blink Arduino's LED with heartbeat.
   pulseSensor.setThreshold(Threshold);
   // Double-check the "pulseSensor" object was created and "began" seeing a signal. 
   pulseSensor.begin();
@@ -146,8 +144,8 @@ void setup(void) {
 // Print something in the mini status bar with either flashstring
 int currentPage = 0; // 0 is the homescreen 
 int wakeHour = 10;
-int wakeMinute = 10;
-int wakeSecond = 10;
+int wakeMinute = 0;
+int wakeSecond = 0;
 int alarmnum[6] = {0,0,0,0,0,0};
 char timeString[9];
 #define MINPRESSURE 10
@@ -165,6 +163,7 @@ void loop(void) {
    }
   if (currentPage == 0) { //If we're on the home screen
     homeClock();
+    hjartaMaeling();
     if (touch.z >= MINPRESSURE && touch.z <= MAXPRESSURE) { //check if a touch event has occurred
       if (touch.x >= TEXT_X && touch.x < (TEXT_X + TEXT_W) && touch.y >= TEXT_Y && touch.y < (TEXT_Y + TEXT_H)) { //Check if clicked the current time clock
         textfield_i = 0;
@@ -295,32 +294,39 @@ void loop(void) {
       }
     }
   }  
-  }
-  buzzer.loop();
-  int myBPM;
-  if (pulseSensor.getBeatsPerMinute() > 220){
-    myBPM = 0;
-  }
-  else{myBPM = pulseSensor.getBeatsPerMinute();}
-  tft.setCursor(ALARM_X,ALARM_Y+ALARM_H+20);
-  tft.print("BPM =");
-  tft.println(myBPM);
-  if (hour() == wakeHour && minute()==wakeMinute && second() >wakeSecond&&!Hjarta){
-    if (buzzer.getState() == BUZZER_IDLE) {
+}   
+    buzzer.loop();
+    if (hour() == wakeHour && minute()==wakeMinute && second() >wakeSecond&&!Hjarta){
+
+      if (buzzer.getState() == BUZZER_IDLE) {
         int length = sizeof(noteDurations) / sizeof(int);
         buzzer.playMelody(melody, noteDurations, length); // playing
-        Serial.print("BPM: ");                        // Print phrase "BPM: " 
-        Serial.println(pulseSensor.getBeatsPerMinute());
-        }
-      if(myBPM>stoppingBeat){
-      Serial.print("BPM: ");                        // Print phrase "BPM: " 
-      Serial.println(pulseSensor.getBeatsPerMinute());                        // Print the value inside of myBPM. 
-      Serial.println("Stoppa hljóð");  
-      Hjarta = true;}
+      }
+      if (pulseSensor.sawStartOfBeat()){
+      int BPM = pulseSensor.getBeatsPerMinute();
+        if(BPM>stoppingBeat){
+        tft.setCursor(ALARM_X,ALARM_Y+ALARM_H+20);
+        tft.println("Stoppa hljóð");  
+        Hjarta = true;}
+    }
   }
 }
 
 
+
+void hjartaMaeling(){
+  if (pulseSensor.sawStartOfBeat()) {            // Constantly test to see if "a beat happened".
+    int myBPM = pulseSensor.getBeatsPerMinute();  // Calls function on our pulseSensor object that returns BPM as an "int".
+                                               // "myBPM" hold this BPM value now. 
+    Serial.println("♥  A HeartBeat Happened ! "); // If test is "true", print a message "a heartbeat happened".
+    Serial.print("BPM: ");                        // Print phrase "BPM: " 
+    Serial.println(myBPM);
+    tft.setCursor(ALARM_X,ALARM_Y+ALARM_H+20);
+    tft.print("BPM =");
+    tft.println(myBPM);
+                        // Print the value inside of myBPM. 
+  }
+}
 
 
 void alarmClock(){
