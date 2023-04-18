@@ -4,6 +4,7 @@
 #include "pitches.h"
 #include <Time.h> //Time without RTC
 #include <TimeLib.h> 
+#include <ezBuzzer.h>
 
 
 // notes in the melody:
@@ -31,7 +32,8 @@ int Threshold = 200;           // Determine which Signal to "count as a beat" an
 unsigned long lastTime = 0; //For timkeeping for the clock display
 int stoppingBeat = 100;
 PulseSensorPlayground pulseSensor;  // Creates an instance of the PulseSensorPlayground object called "pulseSensor"
-const int buzzer = 10;
+const int buzzerPin = 10;
+ezBuzzer buzzer(buzzerPin);
 
 
 void setup() {
@@ -49,17 +51,21 @@ pulseSensor.begin();
 }
 
 
-
 void loop() {
+  buzzer.loop();
   int hour_vakning = 18; //hour you want to wake up
   int minute_vakning = 23; //minute you want to wake up
   digitalClockDisplay(); //Display the time
   if (hour() == hour_vakning && minute()>minute_vakning-1 && minute()<minute_vakning+4){
     int myBPM = pulseSensor.getBeatsPerMinute();
     if (myBPM<stoppingBeat){
-       playMelody();
-       Serial.print("BPM: ");                        // Print phrase "BPM: " 
-       Serial.println(pulseSensor.getBeatsPerMinute());
+      //  playMelody();
+      if (buzzer.getState() == BUZZER_IDLE) {
+        int length = sizeof(noteDurations) / sizeof(int);
+        buzzer.playMelody(melody, noteDurations, length); // playing
+        Serial.print("BPM: ");                        // Print phrase "BPM: " 
+        Serial.println(pulseSensor.getBeatsPerMinute());
+        }
       }//Plays melody while bpm less than 100
     else{
       Serial.print("BPM: ");                        // Print phrase "BPM: " 
@@ -71,20 +77,20 @@ void loop() {
   }
 }
 
-void playMelody() {
-    for (int thisNote = 0; thisNote < length; thisNote++) {
-        // to calculate the note duration, take one second divided by the note type.
-        //e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
-          int noteDuration = 1000 / noteDurations[thisNote];
-          tone(buzzer, melody[thisNote], noteDuration);
-          // to distinguish the notes, set a minimum time between them.
-          // the note's duration + 30% seems to work well:
-          int pauseBetweenNotes = noteDuration * 1.30;
-          delay(pauseBetweenNotes);
-          // stop the tone playing:
-          noTone(buzzer);
-    }
-}
+// void playMelody() {
+//     for (int thisNote = 0; thisNote < length; thisNote++) {
+//         // to calculate the note duration, take one second divided by the note type.
+//         //e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
+//           int noteDuration = 1000 / noteDurations[thisNote];
+//           tone(buzzerPin, melody[thisNote], noteDuration);
+//           // to distinguish the notes, set a minimum time between them.
+//           // the note's duration + 30% seems to work well:
+//           int pauseBetweenNotes = noteDuration * 1.30;
+//           delay(pauseBetweenNotes);
+//           // stop the tone playing:
+//           noTone(buzzerPin);
+//     }
+// }
 
 //Display the time as unblocking code. 
 void digitalClockDisplay() {

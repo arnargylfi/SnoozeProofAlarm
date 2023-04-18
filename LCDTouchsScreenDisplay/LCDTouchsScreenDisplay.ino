@@ -1,8 +1,32 @@
+#define USE_ARDUINO_INTERRUPTS true    // Set-up low-level interrupts for most acurate BPM math.
+#include <PulseSensorPlayground.h>     // Includes the PulseSensorPlayground Library.   
+#include "pitches.h"
+#include <ezBuzzer.h>
 #include <Adafruit_GFX.h>    // Core graphics library
 #include <Adafruit_TFTLCD.h> // Hardware-specific library
 #include <TouchScreen.h>
-#include <Time.h> //Time without RTC
 #include <TimeLib.h>
+
+
+// notes in the melody:
+int melody[] = {
+  //Saltkjöt og baunir
+   NOTE_C8, NOTE_G7, NOTE_G7, NOTE_A7, NOTE_G7, 0, NOTE_B7, NOTE_C8,NOTE_D8,NOTE_C8,NOTE_D8,NOTE_C8,NOTE_D8,NOTE_C8 
+  //Pulse
+  //NOTE_C4,NOTE_C4,NOTE_C4,NOTE_C4,NOTE_C4,NOTE_C4,NOTE_C4,NOTE_C4,NOTE_C4,NOTE_C4,NOTE_C4,NOTE_C4,NOTE_C4,NOTE_C4,
+  
+};
+int length = sizeof(melody)/sizeof(int); //How many notes there are in the melody
+
+// note durations: 4 = quarter note, 8 = eighth note, etc.:
+int noteDurations[] = {
+  //Saltkjöt og baunir
+  4, 8, 8, 4, 4, 4, 4, 16,16,16,16,16,16,2 
+  //Pulse
+  //8,8,8,8,8,8,8,8,8,8,8,8,8,8
+};
+
+
 
 
 // The control pins for the LCD can be assigned to any digital or
@@ -12,8 +36,16 @@
 #define LCD_CD A2 // Command/Data goes to Analog 2
 #define LCD_WR A1 // LCD Write goes to Analog 1
 #define LCD_RD A0 // LCD Read goes to Analog 0
+const int PulseWire = A5;
 
 #define LCD_RESET A4 // Can alternately just connect to Arduino's reset pin
+const int LED = 13;          // The on-board Arduino LED, close to PIN 13.
+int Threshold = 200;           // Determine which Signal to "count as a beat" and which to ignore.
+int stoppingBeat = 300;
+PulseSensorPlayground pulseSensor;  // Creates an instance of the PulseSensorPlayground object called "pulseSensor"
+const int buzzerPin = 10;
+ezBuzzer buzzer(buzzerPin);
+
 
 #define	BLACK   0x0000
 #define	BLUE    0x001F
@@ -47,24 +79,29 @@
 
 /******************* UI details */
 #define BUTTON_X 40
-#define BUTTON_Y 100
+#define BUTTON_Y 150
 #define BUTTON_W 60
 #define BUTTON_H 30
 #define BUTTON_SPACING_X 20
 #define BUTTON_SPACING_Y 20
 #define BUTTON_TEXTSIZE 2
 
+
 // text box where numbers go
 #define TEXT_X 10
 #define TEXT_Y 10
 #define TEXT_W 220
-#define TEXT_H 80
-#define TEXT_TSIZE 7
+#define TEXT_H 70
 #define TEXT_TCOLOR ILI9341_GREEN
+#define TEXT_LEN 5
 // the data (phone #) we store in the textfield
-#define TEXT_LEN 12
-char textfield[TEXT_LEN+1] = "";
-uint8_t textfield_i=0;
+// box where alarm goes
+int ALARM_X = TEXT_X;
+int ALARM_Y = TEXT_Y+TEXT_H+10;
+int ALARM_W  = TEXT_W;
+int ALARM_H  = TEXT_H;
+
+
 
 #define YP A3  // must be an analog pin, use "An" notation!
 #define XM A2  // must be an analog pin, use "An" notation!
@@ -79,179 +116,245 @@ uint8_t textfield_i=0;
 // We have a status line for like, is FONA working
 #define STATUS_X 10
 #define STATUS_Y 65
-
-
-
 #include <MCUFRIEND_kbv.h>
 MCUFRIEND_kbv tft;
 TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
+Adafruit_GFX_Button buttons[10];
+/* create 10 buttons, in classic candybar phone style */
+char buttonlabels[10][5] = {"1", "2", "3", "4", "5", "6", "7", "8", "9",  "0" };
+uint16_t buttoncolors[10] = {ILI9341_BLUE, ILI9341_BLUE, ILI9341_BLUE, 
+                             ILI9341_BLUE, ILI9341_BLUE, ILI9341_BLUE, 
+                             ILI9341_BLUE, ILI9341_BLUE, ILI9341_BLUE, 
+                             ILI9341_BLUE};
 
-Adafruit_GFX_Button buttons[15;
-/* create 15 buttons, in classic candybar phone style */
-char buttonlabels[15][5] = {"Send", "Clr", "End", "1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#" };
-uint16_t buttoncolors[15] = {ILI9341_DARKGREEN, ILI9341_DARKGREY, ILI9341_RED, 
-                             ILI9341_BLUE, ILI9341_BLUE, ILI9341_BLUE, 
-                             ILI9341_BLUE, ILI9341_BLUE, ILI9341_BLUE, 
-                             ILI9341_BLUE, ILI9341_BLUE, ILI9341_BLUE, 
-                             ILI9341_ORANGE, ILI9341_BLUE, ILI9341_ORANGE};
-                             
+bool Hjarta = false;
 void setup(void) {
+  pulseSensor.analogInput(PulseWire);   
+  pulseSensor.blinkOnPulse(LED);       //auto-magically blink Arduino's LED with heartbeat.
+  pulseSensor.setThreshold(Threshold);
+  // Double-check the "pulseSensor" object was created and "began" seeing a signal. 
+  pulseSensor.begin();
   Serial.begin(9600);
   tft.reset();
-
   uint16_t identifier = tft.readID();
-
   tft.begin(identifier);
-  tft.setRotation(1);
+  tft.setRotation(0);
   tft.fillScreen(BLACK);
-  
-  // create buttons
-  for (uint8_t row=0; row<5; row++) {
-    for (uint8_t col=0; col<3; col++) {
-      buttons[col + row*3].initButton(&tft, BUTTON_X+col*(BUTTON_W+BUTTON_SPACING_X), 
-                 BUTTON_Y+row*(BUTTON_H+BUTTON_SPACING_Y),    // x, y, w, h, outline, fill, text
-                  BUTTON_W, BUTTON_H, ILI9341_WHITE, buttoncolors[col+row*3], ILI9341_WHITE,
-                  buttonlabels[col + row*3], BUTTON_TEXTSIZE); 
-      buttons[col + row*3].drawButton();
-    }
-  }
-  
-  // create 'text field'
-  tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H, ILI9341_WHITE);
-
- 
+  alarmClock();
+  tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H, ILI9341_WHITE); //DRAW FRAME FOR CLOCK
 }
 // Print something in the mini status bar with either flashstring
-void status(const __FlashStringHelper *msg) {
-  tft.fillRect(STATUS_X, STATUS_Y, 240, 8, ILI9341_BLACK);
-  tft.setCursor(STATUS_X, STATUS_Y);
-  tft.setTextColor(ILI9341_WHITE);
-  tft.setTextSize(1);
-  tft.print(msg);
-}
-// or charstring
-void status(char *msg) {
-  tft.fillRect(STATUS_X, STATUS_Y, 240, 8, ILI9341_BLACK);
-  tft.setCursor(STATUS_X, STATUS_Y);
-  tft.setTextColor(ILI9341_WHITE);
-  tft.setTextSize(1);
-  tft.print(msg);
-}
+int currentPage = 0; // 0 is the homescreen 
+int wakeHour = 10;
+int wakeMinute = 10;
+int wakeSecond = 10;
+int alarmnum[6] = {0,0,0,0,0,0};
+char timeString[9];
 #define MINPRESSURE 10
 #define MAXPRESSURE 1000
+unsigned long lastTime = 0; //For timkeeping for the clock display
+int textfield_i = 0;
+int textfield[6] = {0,0,0,0,0,0}; //initiating for textdisplay
 void loop(void) {
-  TSPoint p = ts.getPoint();
-
-  // if sharing pins, you'll need to fix the directions of the touchscreen pins
-  //pinMode(XP, OUTPUT);
+  TSPoint touch = ts.getPoint();
   pinMode(XM, OUTPUT);
   pinMode(YP, OUTPUT);
-  //pinMode(YM, OUTPUT);
-
-  // we have some minimum pressure we consider 'valid'
-  // pressure of 0 means no pressing!
-  
- // p = ts.getPoint(); 
-  /*
-  if (ts.bufferSize()) {
-    
-  } else {
-    // this is our way of tracking touch 'release'!
-    p.x = p.y = p.z = -1;
-  }*/
-  
-  // Scale from ~0->4000 to tft.width using the calibration #'s
-  /*
-  if (p.z != -1) {
-    p.x = map(p.x, TS_MINX, TS_MAXX, 0, tft.width());
-    p.y = map(p.y, TS_MINY, TS_MAXY, 0, tft.height());
-    Serial.print("("); Serial.print(p.x); Serial.print(", "); 
-    Serial.print(p.y); Serial.print(", "); 
-    Serial.print(p.z); Serial.println(") ");
-  }*/
-   if (p.z > MINPRESSURE && p.z < MAXPRESSURE) {
-    // scale from 0->1023 to tft.width
-    p.x = map(p.x, TS_MINX, TS_MAXX, tft.width(), 0);
-    p.y = (tft.height()-map(p.y, TS_MINY, TS_MAXY, tft.height(), 0));
+  if (touch.z > MINPRESSURE && touch.z < MAXPRESSURE) {
+    touch.x = map(touch.x, TS_MINX, TS_MAXX, tft.width(), 0);
+    touch.y = (tft.height()-map(touch.y, TS_MINY, TS_MAXY, tft.height(), 0));
    }
-   
-  // go thru all the buttons, checking if they were pressed
-  for (uint8_t b=0; b<15; b++) {
-    if (buttons[b].contains(p.x, p.y)) {
-      //Serial.print("Pressing: "); Serial.println(b);
-      buttons[b].press(true);  // tell the button it is pressed
+  if (currentPage == 0) { //If we're on the home screen
+    homeClock();
+    if (touch.z >= MINPRESSURE && touch.z <= MAXPRESSURE) { //check if a touch event has occurred
+      if (touch.x >= TEXT_X && touch.x < (TEXT_X + TEXT_W) && touch.y >= TEXT_Y && touch.y < (TEXT_Y + TEXT_H)) { //Check if clicked the current time clock
+        textfield_i = 0;
+        tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H, MAGENTA);
+        delay(250);
+        tft.fillScreen(BLACK);
+        tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H+50, WHITE);
+        tft.setCursor(TEXT_X + 2, TEXT_Y+5);
+        tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
+        tft.setTextSize(3); 
+        tft.println("Stilla tima");
+        createButtons();
+        tft.setCursor(0, 0);// Set the cursor position
+        int textfield[6] = {0,0,0,0,0,0};
+        sprintf(timeString,"%02d:%02d:%02d", 00, 00, 00);
+        tft.setTextSize(4);
+        tft.setCursor(TEXT_X+2,TEXT_Y+30);
+        tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
+        tft.println(timeString);        
+        currentPage = 1;
+      }
+      if (touch.x >= ALARM_X && touch.x < (ALARM_X + ALARM_W) && touch.y >= ALARM_Y && touch.y < (ALARM_Y + ALARM_H)) { //Check if clicked the Alarm clock
+        tft.drawRect(ALARM_X, ALARM_Y, ALARM_W, ALARM_H, MAGENTA);
+        textfield_i = 0;
+        delay(250);
+        tft.fillScreen(BLACK);
+        tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H+50, WHITE);
+        tft.setCursor(TEXT_X + 2, TEXT_Y+5);
+        tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
+        tft.setTextSize(3); 
+        tft.println("Wake up time");
+        createButtons();
+        tft.setCursor(0, 0);// Set the cursor position
+        int alarmnum[6] = {0,0,0,0,0,0};
+        sprintf(timeString,"%02d:%02d:%02d", 00, 00, 00);
+        tft.setTextSize(4);
+        tft.setCursor(TEXT_X+2,TEXT_Y+30);
+        tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
+        tft.println(timeString);        
+        currentPage = 2;
+      }
+    }
+  }
+  if (currentPage == 1) { //Calibrate current time page.
+    if (touch.z >= MINPRESSURE && touch.z <= MAXPRESSURE) { //check if a touch event has occurred
+      for (uint8_t b=0; b<9; b++) { //Go through all buttons to see if pressed
+        if (buttons[b].contains(touch.x, touch.y)) {
+          buttons[b].press(true);  // tell the button it is pressed
+      } else {
+        buttons[b].press(false);  // tell the button it is NOT pressed
+      }
+    }
+      // now we can ask the buttons if their state has changed
+      for (uint8_t b=0; b<9; b++) {
+        if (buttons[b].justReleased()) {
+          buttons[b].drawButton(false);  // draw normal
+        }
+        if (buttons[b].isPressed()) {
+            buttons[b].drawButton(true);  // draw invert!
+            delay(100);
+            if(b<9){
+              if(textfield_i==TEXT_LEN){ //return to homepage
+                textfield[textfield_i] = atoi(buttonlabels[b]);
+                delay(200);
+                tft.fillScreen(BLACK);
+                tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H+50, WHITE);
+                alarmClock();
+                setTime(textfield[0]*10+textfield[1],textfield[2]*10+textfield[3],textfield[4]*10+textfield[5],0,0,0);
+                int textfield[6] = {0,0,0,0,0,0};
+                currentPage =0;
+              }
+              else{
+                textfield[textfield_i] = atoi(buttonlabels[b]);
+                textfield_i++;
+              }
+            }
+          char timeString[9];
+          sprintf(timeString,"%02d:%02d:%02d", textfield[0]*10+textfield[1], textfield[2]*10+textfield[3], textfield[4]*10+textfield[5]);
+          tft.setTextSize(4);
+          tft.setCursor(TEXT_X+2,TEXT_Y+30);
+          tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
+          tft.println(timeString); 
+        }
+      }
+    }  
+  }
+  if (currentPage == 2) { //Calibrate current time page.
+  if (touch.z >= MINPRESSURE && touch.z <= MAXPRESSURE) { //check if a touch event has occurred
+    for (uint8_t b=0; b<9; b++) { //Go through all buttons to see if pressed
+      if (buttons[b].contains(touch.x, touch.y)) {
+        buttons[b].press(true);  // tell the button it is pressed
     } else {
       buttons[b].press(false);  // tell the button it is NOT pressed
     }
   }
-
-  // now we can ask the buttons if their state has changed
-  for (uint8_t b=0; b<15; b++) {
-    if (buttons[b].justReleased()) {
-      // Serial.print("Released: "); Serial.println(b);
-      buttons[b].drawButton();  // draw normal
-    }
-    
-    if (buttons[b].justPressed()) {
-        buttons[b].drawButton(true);  // draw invert!
-        
-        // if a numberpad button, append the relevant # to the textfield
-        if (b >= 3) {
-          if (textfield_i < TEXT_LEN) {
-            textfield[textfield_i] = buttonlabels[b][0];
-            textfield_i++;
-	    textfield[textfield_i] = 0; // zero terminate
-            
-           // fona.playDTMF(buttonlabels[b][0]);
+    // now we can ask the buttons if their state has changed
+    for (uint8_t b=0; b<9; b++) {
+      if (buttons[b].justReleased()) {
+        buttons[b].drawButton(false);  // draw normal
+      }
+      if (buttons[b].isPressed()) {
+          buttons[b].drawButton(true);  // draw invert!
+          delay(100);
+          if(b<9){
+            if(textfield_i==TEXT_LEN){ //return to homepage
+              alarmnum[textfield_i] = atoi(buttonlabels[b]);
+              delay(200);
+              tft.fillScreen(BLACK);
+              tft.drawRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H+50, WHITE);
+              wakeHour = alarmnum[0]*10+alarmnum[1];
+              wakeMinute = alarmnum[2]*10+alarmnum[3];
+              wakeSecond  =alarmnum[4]*10+alarmnum[5];
+              alarmClock();
+              int textfield[6] = {0,0,0,0,0,0};
+              currentPage =0;              
+            }
+            else{
+              alarmnum[textfield_i] = atoi(buttonlabels[b]);
+              textfield_i++;
+            }
           }
-        }
-
-        // clr button! delete char
-        if (b == 1) {
-          
-          textfield[textfield_i] = 0;
-          if (textfield > 0) {
-            textfield_i--;
-            textfield[textfield_i] = ' ';
-          }
-        }
-
-        // update the current text field
-        Serial.println(textfield);
-        tft.setCursor(TEXT_X + 2, TEXT_Y+10);
+        char timeString[9];
+        sprintf(timeString,"%02d:%02d:%02d", alarmnum[0]*10+alarmnum[1], alarmnum[2]*10+alarmnum[3], alarmnum[4]*10+alarmnum[5]);
+        tft.setTextSize(4);
+        tft.setCursor(TEXT_X+2,TEXT_Y+30);
         tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
-        tft.setTextSize(TEXT_TSIZE);
-        tft.print(textfield);
-
-        // its always OK to just hang up
-        if (b == 2) {
-          status(F("Hanging up"));
-          //fona.hangUp();
-        }
-        // we dont really check that the text field makes sense
-        // just try to call
-        if (b == 0) {
-          status(F("Calling"));
-          Serial.print("Calling "); Serial.print(textfield);
-          
-          //fona.callPhone(textfield);
-        }
-        
-      delay(100); // UI debouncing
+        tft.println(timeString); 
+      }
     }
+  }  
   }
+  buzzer.loop();
+  int myBPM;
+  if (pulseSensor.getBeatsPerMinute() > 220){
+    myBPM = 0;
+  }
+  else{myBPM = pulseSensor.getBeatsPerMinute();}
+  tft.setCursor(ALARM_X,ALARM_Y+ALARM_H+20);
+  tft.print("BPM =");
+  tft.println(myBPM);
+  if (hour() == wakeHour && minute()==wakeMinute && second() >wakeSecond&&!Hjarta){
+    if (buzzer.getState() == BUZZER_IDLE) {
+        int length = sizeof(noteDurations) / sizeof(int);
+        buzzer.playMelody(melody, noteDurations, length); // playing
+        Serial.print("BPM: ");                        // Print phrase "BPM: " 
+        Serial.println(pulseSensor.getBeatsPerMinute());
+        }
+      if(myBPM>stoppingBeat){
+      Serial.print("BPM: ");                        // Print phrase "BPM: " 
+      Serial.println(pulseSensor.getBeatsPerMinute());                        // Print the value inside of myBPM. 
+      Serial.println("Stoppa hljóð");  
+      Hjarta = true;}
+  }
+}
+
+
+
+
+void alarmClock(){
+    tft.drawRect(ALARM_X, ALARM_Y, ALARM_W,ALARM_H,WHITE);
+    char alarmString[9]; // buffer to hold the time string
+    sprintf(alarmString, "%02d:%02d:%02d", wakeHour, wakeMinute, wakeSecond);
+    // update the current text field
+    tft.setCursor(ALARM_X + 2, ALARM_Y+5);
+    tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
+    tft.setTextSize(3);
+    tft.println("Wake up time");
+    tft.setTextSize(4);
+    tft.setCursor(ALARM_X+2,ALARM_Y+30);
+    tft.println(alarmString);
   
 }
 
-unsigned long lastTime = 0; //For timkeeping for the clock display
-void digitalClockDisplay() {
-unsigned long currentTime = millis();
+void homeClock() {
+  static unsigned long lastTime = 0; //For timkeeping for the clock display
+  unsigned long currentTime = millis();
   if (currentTime - lastTime >= 1000) {
     lastTime = currentTime;
-    Serial.print(hour());
-    printDigits(minute());
-    printDigits(second());
-    Serial.println("");
+    
+    // format the time as a string
+    char timeString[9]; // buffer to hold the time string
+    sprintf(timeString, "%02d:%02d:%02d", hour(), minute(), second());
+    // update the current text field
+    tft.setCursor(TEXT_X + 2, TEXT_Y+5);
+    tft.setTextColor(TEXT_TCOLOR, ILI9341_BLACK);
+    tft.setTextSize(3);
+    tft.println("Current time");
+    tft.setTextSize(4);
+    tft.setCursor(TEXT_X+2,TEXT_Y+30);
+    tft.println(timeString);
   }
 }
 void printDigits(int digits)
@@ -262,30 +365,27 @@ void printDigits(int digits)
   Serial.print(digits);  
 }
 
-
-void drawHomeScreen() {
-  tft.setBackColor(0, 0, 0); // Sets the background color of the area where the text will be printed to black
-  myGLCD.setColor(255, 255, 255); // Sets color to white
-  myGLCD.setFont(BigFont); // Sets font to big
-  myGLCD.print(rtc.getDateStr(), 153, 7);
-  myGLCD.print("T:", 7, 7);
-  myGLCD.printNumI(rtc.getTemp(), 39, 7);
-  myGLCD.print("C", 82, 7);
-  myGLCD.setFont(SmallFont);
-  myGLCD.print("o", 74, 5);
-  if (alarmString == "" ) {
-    myGLCD.setColor(255, 255, 255);
-    myGLCD.print("by www.HowToMechatronics.com", CENTER, 215);
+  // create buttons
+  void createButtons(){
+  bool breakOuterLoop = false;
+  for (uint8_t row=0; row<4; row++) { 
+    for (uint8_t col=0; col<3; col++) {
+      if(col+row*3>9){  //Break out of loop if we exceed index number of buttons
+        breakOuterLoop = true;
+        break;
+      }
+      buttons[col + row*3].initButton(&tft, BUTTON_X+col*(BUTTON_W+BUTTON_SPACING_X), 
+                BUTTON_Y+row*(BUTTON_H+BUTTON_SPACING_Y),    // x, y, w, h, outline, fill, text
+                  BUTTON_W, BUTTON_H, ILI9341_WHITE, buttoncolors[col+row*3], ILI9341_WHITE,
+                  buttonlabels[col + row*3], BUTTON_TEXTSIZE); 
+      buttons[col + row*3].drawButton();
+    }
+    if (breakOuterLoop){  //Break out of outer loop if we exceed index number of buttons
+      break;
+    }
   }
-  else {
-    myGLCD.setColor(255, 255, 255);
-    myGLCD.print("Alarm set for: ", 68, 215);
-    myGLCD.print(alarmString, 188, 215);
-  }
-  drawMusicPlayerButton();
-  drawAlarmButton();
-  drawHomeClock();
 }
+
 
 
 
